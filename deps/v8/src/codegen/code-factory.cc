@@ -233,16 +233,6 @@ Callable CodeFactory::ResumeGenerator(Isolate* isolate) {
 }
 
 // static
-Callable CodeFactory::FrameDropperTrampoline(Isolate* isolate) {
-  return Builtins::CallableFor(isolate, Builtins::kFrameDropperTrampoline);
-}
-
-// static
-Callable CodeFactory::HandleDebuggerStatement(Isolate* isolate) {
-  return Builtins::CallableFor(isolate, Builtins::kHandleDebuggerStatement);
-}
-
-// static
 Callable CodeFactory::FastNewFunctionContext(Isolate* isolate,
                                              ScopeType scope_type) {
   switch (scope_type) {
@@ -402,6 +392,13 @@ Callable CodeFactory::InterpreterCEntry(Isolate* isolate, int result_size) {
 Callable CodeFactory::InterpreterOnStackReplacement(Isolate* isolate) {
   return Builtins::CallableFor(isolate,
                                Builtins::kInterpreterOnStackReplacement);
+}
+
+// static
+Callable CodeFactory::InterpreterOnStackReplacement_ToBaseline(
+    Isolate* isolate) {
+  return Builtins::CallableFor(
+      isolate, Builtins::kInterpreterOnStackReplacement_ToBaseline);
 }
 
 // static

@@ -8,9 +8,9 @@
 
 #include "include/cppgc/internal/logging.h"
 #include "src/base/bits.h"
+#include "src/base/sanitizer/asan.h"
 #include "src/heap/cppgc/globals.h"
 #include "src/heap/cppgc/heap-object-header.h"
-#include "src/heap/cppgc/sanitizers.h"
 
 namespace cppgc {
 namespace internal {
@@ -170,7 +170,7 @@ bool FreeList::IsEmpty() const {
                      [](const auto* entry) { return !entry; });
 }
 
-bool FreeList::Contains(Block block) const {
+bool FreeList::ContainsForTesting(Block block) const {
   for (Entry* list : free_list_heads_) {
     for (Entry* entry = list; entry; entry = entry->Next()) {
       if (entry <= block.address &&

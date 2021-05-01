@@ -119,11 +119,7 @@ struct LiveEditResult {
     OK,
     COMPILE_ERROR,
     BLOCKED_BY_RUNNING_GENERATOR,
-    BLOCKED_BY_FUNCTION_ABOVE_BREAK_FRAME,
-    BLOCKED_BY_FUNCTION_BELOW_NON_DROPPABLE_FRAME,
-    BLOCKED_BY_ACTIVE_FUNCTION,
-    BLOCKED_BY_NEW_TARGET_IN_RESTART_FRAME,
-    FRAME_RESTART_IS_NOT_SUPPORTED
+    BLOCKED_BY_ACTIVE_FUNCTION
   };
   Status status = OK;
   bool stack_changed = false;
@@ -154,7 +150,6 @@ class V8_EXPORT_PRIVATE Script {
   MaybeLocal<String> SourceMappingURL() const;
   Maybe<int> ContextId() const;
   MaybeLocal<String> Source() const;
-  bool IsWasm() const;
   bool IsModule() const;
   bool GetPossibleBreakpoints(
       const debug::Location& start, const debug::Location& end,
@@ -166,10 +161,14 @@ class V8_EXPORT_PRIVATE Script {
                        LiveEditResult* result) const;
   bool SetBreakpoint(v8::Local<v8::String> condition, debug::Location* location,
                      BreakpointId* id) const;
+#if V8_ENABLE_WEBASSEMBLY
+  bool IsWasm() const;
   void RemoveWasmBreakpoint(BreakpointId id);
+#endif  // V8_ENABLE_WEBASSEMBLY
   bool SetBreakpointOnScriptEntry(BreakpointId* id) const;
 };
 
+#if V8_ENABLE_WEBASSEMBLY
 // Specialization for wasm Scripts.
 class WasmScript : public Script {
  public:
@@ -190,10 +189,10 @@ class WasmScript : public Script {
   int CodeOffset() const;
   int CodeLength() const;
 };
+#endif  // V8_ENABLE_WEBASSEMBLY
 
-V8_EXPORT_PRIVATE void GetLoadedScripts(
-    Isolate* isolate,
-    PersistentValueVector<Script>& scripts);  // NOLINT(runtime/references)
+V8_EXPORT_PRIVATE void GetLoadedScripts(Isolate* isolate,
+                                        PersistentValueVector<Script>& scripts);
 
 MaybeLocal<UnboundScript> CompileInspectorScript(Isolate* isolate,
                                                  Local<String> source);
@@ -228,8 +227,10 @@ class DebugDelegate {
 V8_EXPORT_PRIVATE void SetDebugDelegate(Isolate* isolate,
                                         DebugDelegate* listener);
 
+#if V8_ENABLE_WEBASSEMBLY
 V8_EXPORT_PRIVATE void TierDownAllModulesPerIsolate(Isolate* isolate);
 V8_EXPORT_PRIVATE void TierUpAllModulesPerIsolate(Isolate* isolate);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 class AsyncEventDelegate {
  public:
@@ -474,7 +475,6 @@ class V8_EXPORT_PRIVATE StackTraceIterator {
   virtual v8::Local<v8::Function> GetFunction() const = 0;
   virtual std::unique_ptr<ScopeIterator> GetScopeIterator() const = 0;
 
-  virtual bool Restart() = 0;
   virtual v8::MaybeLocal<v8::Value> Evaluate(v8::Local<v8::String> source,
                                              bool throw_on_side_effect) = 0;
 };
@@ -616,28 +616,30 @@ class PropertyIterator {
   virtual bool is_array_index() = 0;
 };
 
+#if V8_ENABLE_WEBASSEMBLY
 class V8_EXPORT_PRIVATE WasmValueObject : public v8::Object {
  public:
   WasmValueObject() = delete;
   static bool IsWasmValueObject(v8::Local<v8::Value> obj);
-  V8_INLINE static WasmValueObject* Cast(v8::Value* obj);
+  static WasmValueObject* Cast(v8::Value* value) {
+#ifdef V8_ENABLE_CHECKS
+    CheckCast(value);
+#endif
+    return static_cast<WasmValueObject*>(value);
+  }
+
+  v8::Local<v8::String> type() const;
 
  private:
   static void CheckCast(v8::Value* obj);
 };
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 AccessorPair* AccessorPair::Cast(v8::Value* value) {
 #ifdef V8_ENABLE_CHECKS
   CheckCast(value);
 #endif
   return static_cast<AccessorPair*>(value);
-}
-
-WasmValueObject* WasmValueObject::Cast(v8::Value* value) {
-#ifdef V8_ENABLE_CHECKS
-  CheckCast(value);
-#endif
-  return static_cast<WasmValueObject*>(value);
 }
 
 MaybeLocal<Message> GetMessageFromPromise(Local<Promise> promise);

@@ -777,9 +777,7 @@ Reduction JSCreateLowering::ReduceJSCreateAsyncFunctionObject(Node* node) {
   // Create the register file.
   MapRef fixed_array_map(broker(), factory()->fixed_array_map());
   AllocationBuilder ab(jsgraph(), effect, control);
-  if (!ab.CanAllocateArray(register_count, fixed_array_map)) {
-    return NoChange();
-  }
+  CHECK(ab.CanAllocateArray(register_count, fixed_array_map));
   ab.AllocateArray(register_count, fixed_array_map);
   for (int i = 0; i < register_count; ++i) {
     ab.Store(AccessBuilder::ForFixedArraySlot(i),
@@ -892,9 +890,7 @@ Reduction JSCreateLowering::ReduceJSCreateBoundFunction(Node* node) {
   if (arity > 0) {
     MapRef fixed_array_map(broker(), factory()->fixed_array_map());
     AllocationBuilder ab(jsgraph(), effect, control);
-    if (!ab.CanAllocateArray(arity, fixed_array_map)) {
-      return NoChange();
-    }
+    CHECK(ab.CanAllocateArray(arity, fixed_array_map));
     ab.AllocateArray(arity, fixed_array_map);
     for (int i = 0; i < arity; ++i) {
       ab.Store(AccessBuilder::ForFixedArraySlot(i),
@@ -1100,14 +1096,21 @@ Reduction JSCreateLowering::ReduceJSCreateLiteralArrayOrObject(Node* node) {
   if (!feedback.IsInsufficient()) {
     AllocationSiteRef site = feedback.AsLiteral().value();
     if (site.IsFastLiteral()) {
-      AllocationType allocation = AllocationType::kYoung;
+      AllocationType allocation = FLAG_allocation_site_pretenuring
+                                      ? site.GetAllocationType()
+                                      : AllocationType::kYoung;
+      JSObjectRef boilerplate = site.boilerplate().value();
+      base::Optional<Node*> maybe_value =
+          TryAllocateFastLiteral(effect, control, boilerplate, allocation);
+      if (!maybe_value.has_value()) {
+        TRACE_BROKER_MISSING(broker(), "bound argument");
+        return NoChange();
+      }
       if (FLAG_allocation_site_pretenuring) {
-        allocation = dependencies()->DependOnPretenureMode(site);
+        CHECK_EQ(dependencies()->DependOnPretenureMode(site), allocation);
       }
       dependencies()->DependOnElementsKinds(site);
-      JSObjectRef boilerplate = site.boilerplate().value();
-      Node* value = effect =
-          AllocateFastLiteral(effect, control, boilerplate, allocation);
+      Node* value = effect = maybe_value.value();
       ReplaceWithValue(node, value, effect, control);
       return Replace(value);
     }
@@ -1650,9 +1653,9 @@ Node* JSCreateLowering::AllocateElements(Node* effect, Node* control,
   return a.Finish();
 }
 
-Node* JSCreateLowering::AllocateFastLiteral(Node* effect, Node* control,
-                                            JSObjectRef boilerplate,
-                                            AllocationType allocation) {
+base::Optional<Node*> JSCreateLowering::TryAllocateFastLiteral(
+    Node* effect, Node* control, JSObjectRef boilerplate,
+    AllocationType allocation) {
   // Compute the in-object properties to store first (might have effects).
   MapRef boilerplate_map = boilerplate.map();
   ZoneVector<std::pair<FieldAccess, Node*>> inobject_fields(zone());
@@ -1686,8 +1689,10 @@ Node* JSCreateLowering::AllocateFastLiteral(Node* effect, Node* control,
     Node* value;
     if (boilerplate_value.IsJSObject()) {
       JSObjectRef boilerplate_object = boilerplate_value.AsJSObject();
-      value = effect =
-          AllocateFastLiteral(effect, control, boilerplate_object, allocation);
+      base::Optional<Node*> maybe_value = TryAllocateFastLiteral(
+          effect, control, boilerplate_object, allocation);
+      if (!maybe_value.has_value()) return {};
+      value = effect = maybe_value.value();
     } else if (property_details.representation().IsDouble()) {
       double number = boilerplate_value.AsHeapNumber().value();
       // Allocate a mutable HeapNumber box and store the value into it.
@@ -1712,6 +1717,9 @@ Node* JSCreateLowering::AllocateFastLiteral(Node* effect, Node* control,
   int const boilerplate_length = boilerplate_map.GetInObjectProperties();
   for (int index = static_cast<int>(inobject_fields.size());
        index < boilerplate_length; ++index) {
+    DCHECK(!V8_MAP_PACKING_BOOL);
+    // TODO(wenyuzhao): Fix incorrect MachineType when V8_MAP_PACKING is
+    // enabled.
     FieldAccess access =
         AccessBuilder::ForJSObjectInObjectProperty(boilerplate_map, index);
     Node* value = jsgraph()->HeapConstant(factory()->one_pointer_filler_map());
@@ -1719,8 +1727,10 @@ Node* JSCreateLowering::AllocateFastLiteral(Node* effect, Node* control,
   }
 
   // Setup the elements backing store.
-  Node* elements =
-      AllocateFastLiteralElements(effect, control, boilerplate, allocation);
+  base::Optional<Node*> maybe_elements =
+      TryAllocateFastLiteralElements(effect, control, boilerplate, allocation);
+  if (!maybe_elements.has_value()) return {};
+  Node* elements = maybe_elements.value();
   if (elements->op()->EffectOutputCount() > 0) effect = elements;
 
   // Actually allocate and initialize the object.
@@ -1743,9 +1753,9 @@ Node* JSCreateLowering::AllocateFastLiteral(Node* effect, Node* control,
   return builder.Finish();
 }
 
-Node* JSCreateLowering::AllocateFastLiteralElements(Node* effect, Node* control,
-                                                    JSObjectRef boilerplate,
-                                                    AllocationType allocation) {
+base::Optional<Node*> JSCreateLowering::TryAllocateFastLiteralElements(
+    Node* effect, Node* control, JSObjectRef boilerplate,
+    AllocationType allocation) {
   FixedArrayBaseRef boilerplate_elements = boilerplate.elements().value();
 
   // Empty or copy-on-write elements just store a constant.
@@ -1764,7 +1774,7 @@ Node* JSCreateLowering::AllocateFastLiteralElements(Node* effect, Node* control,
   if (elements_map.instance_type() == FIXED_DOUBLE_ARRAY_TYPE) {
     FixedDoubleArrayRef elements = boilerplate_elements.AsFixedDoubleArray();
     for (int i = 0; i < elements_length; ++i) {
-      Float64 value = elements.get(i);
+      Float64 value = elements.GetFromImmutableFixedDoubleArray(i);
       if (value.is_hole_nan()) {
         elements_values[i] = jsgraph()->TheHoleConstant();
       } else {
@@ -1774,10 +1784,14 @@ Node* JSCreateLowering::AllocateFastLiteralElements(Node* effect, Node* control,
   } else {
     FixedArrayRef elements = boilerplate_elements.AsFixedArray();
     for (int i = 0; i < elements_length; ++i) {
-      ObjectRef element_value = elements.get(i);
+      base::Optional<ObjectRef> maybe_element_value = elements.TryGet(i);
+      if (!maybe_element_value.has_value()) return {};
+      ObjectRef element_value = maybe_element_value.value();
       if (element_value.IsJSObject()) {
-        elements_values[i] = effect = AllocateFastLiteral(
+        base::Optional<Node*> maybe_value = TryAllocateFastLiteral(
             effect, control, element_value.AsJSObject(), allocation);
+        if (!maybe_value.has_value()) return {};
+        elements_values[i] = effect = maybe_value.value();
       } else {
         elements_values[i] = jsgraph()->Constant(element_value);
       }

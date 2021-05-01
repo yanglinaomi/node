@@ -49,9 +49,6 @@ class V8_EXPORT_PRIVATE CodeFactory final {
 
   static Callable ResumeGenerator(Isolate* isolate);
 
-  static Callable FrameDropperTrampoline(Isolate* isolate);
-  static Callable HandleDebuggerStatement(Isolate* isolate);
-
   static Callable BinaryOperation(Isolate* isolate, Operation op);
 
   static Callable ApiGetter(Isolate* isolate);
@@ -92,6 +89,7 @@ class V8_EXPORT_PRIVATE CodeFactory final {
       Isolate* isolate, InterpreterPushArgsMode mode);
   static Callable InterpreterCEntry(Isolate* isolate, int result_size = 1);
   static Callable InterpreterOnStackReplacement(Isolate* isolate);
+  static Callable InterpreterOnStackReplacement_ToBaseline(Isolate* isolate);
 
   static Callable ArrayNoArgumentConstructor(
       Isolate* isolate, ElementsKind kind,

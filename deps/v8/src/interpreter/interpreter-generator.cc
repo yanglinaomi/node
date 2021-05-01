@@ -2203,11 +2203,7 @@ IGNITION_HANDLER(JumpLoop, InterpreterAssembler) {
   JumpBackward(relative_jump);
 
   BIND(&osr_armed);
-  {
-    Callable callable = CodeFactory::InterpreterOnStackReplacement(isolate());
-    CallStub(callable, context);
-    JumpBackward(relative_jump);
-  }
+  OnStackReplacement(context, relative_jump);
 }
 
 // SwitchOnSmiNoFeedback <table_start> <table_length> <case_value_base>
@@ -2780,7 +2776,7 @@ IGNITION_HANDLER(ThrowIfNotSuperConstructor, InterpreterAssembler) {
 // Call runtime to handle debugger statement.
 IGNITION_HANDLER(Debugger, InterpreterAssembler) {
   TNode<Context> context = GetContext();
-  CallStub(CodeFactory::HandleDebuggerStatement(isolate()), context);
+  CallRuntime(Runtime::kHandleDebuggerStatement, context);
   Dispatch();
 }
 
@@ -2795,7 +2791,6 @@ IGNITION_HANDLER(Debugger, InterpreterAssembler) {
         Runtime::kDebugBreakOnBytecode, context, accumulator);               \
     TNode<Object> return_value = Projection<0>(result_pair);                 \
     TNode<IntPtrT> original_bytecode = SmiUntag(Projection<1>(result_pair)); \
-    MaybeDropFrames(context);                                                \
     SetAccumulator(return_value);                                            \
     DispatchToBytecodeWithOptionalStarLookahead(original_bytecode);          \
   }
